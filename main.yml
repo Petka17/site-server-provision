@@ -1,0 +1,76 @@
+---
+- hosts: base
+  gather_facts: yes
+
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+
+  vars_files:
+    - group_vars/secret.yml
+
+  tasks:
+    - name: Set timezone to Europe/Moscow
+      timezone:
+        name: Europe/Moscow
+      tags:
+        - timezone
+    
+    - block:
+      - name: Add GPG key for docker repository
+        apt_key:
+          id: 0EBFCD88
+          url: https://download.docker.com/linux/ubuntu/gpg
+          state: present
+
+      - name: Add apt repository
+        apt_repository:
+          repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable edge test
+          filename: docker
+          state: present
+      
+      - name: Install docker
+        apt:
+          name: docker-ce
+          state: present
+          # update_cache: yes
+
+      - name: Install pip
+        apt: name=python3-pip
+
+      - name: Install docker-compose
+        pip:
+          name: docker-compose
+            
+    - name: Create system groups
+      group:
+        name: "{{ item }}"
+        state: present
+        system: yes
+      with_items:
+        - "{{ system_groups.ssh }}"
+        - "{{ system_groups.sudo }}"
+    
+    - name: Configure sudo group to not using password when sudo 
+      copy:
+        dest: /etc/sudoers.d/{{ system_groups.sudo }}
+        force: yes
+        content: "%{{ system_groups.sudo }} ALL = (ALL) NOPASSWD:ALL\n"
+        validate: "visudo -cf %s"
+    
+    - name: Create main user
+      user:
+        name: "{{ main_user.login }}"
+        groups: 
+          - "{{ system_groups.ssh }}"
+          - "{{ system_groups.sudo }}"
+          - docker
+        shell: /bin/bash
+        state: present
+      tags: [ user ]
+    
+    - name: Set authorized key for main user
+      authorized_key:
+        user: "{{ main_user.login }}"
+        key: "{{ item }}"
+        state: present
+      with_items: "{{ main_user.ssh_public_key }}"
